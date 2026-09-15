@@ -95,6 +95,7 @@ def panel_boundary_map(ax: plt.Axes, raw: pd.DataFrame) -> str:
     """Pool against utilisation, with each measured refusal region named."""
     d = raw[raw["max_model_len"] == 32768]
     d = d[d["model_id"] == "Qwen/Qwen2.5-7B-Instruct"]
+    d = d[d["tensor_parallel_size"] == 1]
     if d.empty:
         ax.text(0.5, 0.5, "not measured", ha="center", va="center", transform=ax.transAxes)
         return "not measured"

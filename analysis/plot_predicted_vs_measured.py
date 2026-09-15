@@ -90,7 +90,7 @@ def panel_formula_exactness(ax: plt.Axes, df: pd.DataFrame) -> str:
     ax.set_ylim(lim)
     ax.set_xlabel("engine-reported KV pool (GiB)")
     ax.set_ylabel("analytical pool from token count (GiB)")
-    ax.set_title("1. Is the per-token formula right?")
+    ax.set_title("1. Is the per-token formula right? (all models, all TP)")
     ax.legend(frameon=False, loc="upper left")
 
     rel = np.abs(y - x) / x
@@ -106,10 +106,23 @@ def panel_formula_exactness(ax: plt.Axes, df: pd.DataFrame) -> str:
     return f"max relative error {worst:.3f}% over {len(d)} launches"
 
 
+def pin_slice(df: pd.DataFrame) -> pd.DataFrame:
+    """Restrict to one model at one TP degree before aggregating over memory.
+
+    An aggregate is only as meaningful as the thing it aggregates over. Grouping
+    the whole frame by `gpu_memory_utilization` would pool Qwen2.5-7B at TP=1
+    with Qwen2.5-32B at TP=2, whose weights differ by 16 GiB, and the resulting
+    "spread" would be the heterogeneity of the matrix rather than any
+    measurement variation. Every panel that aggregates over memory pins this
+    slice and says so in its title.
+    """
+    return df[(df["model_id"] == "Qwen/Qwen2.5-7B-Instruct") & (df["tensor_parallel_size"] == 1)]
+
+
 def panel_budget_breakdown(ax: plt.Axes, df: pd.DataFrame) -> str:
     """Where gpu_memory_utilization x card actually goes, as measured."""
     cols = [c for c, _, _ in TERMS] + ["log_total_device_memory_gib", "log_memory_budget_gib"]
-    d = df.dropna(subset=cols)
+    d = pin_slice(df).dropna(subset=cols)
     if d.empty:
         ax.text(0.5, 0.5, "not measured", ha="center", va="center", transform=ax.transAxes)
         return "not measured"
@@ -131,7 +144,7 @@ def panel_budget_breakdown(ax: plt.Axes, df: pd.DataFrame) -> str:
     ax.set_xticklabels([f"{v:g}" for v in g.index], rotation=0)
     ax.set_xlabel("gpu_memory_utilization")
     ax.set_ylabel("GPU memory (GiB)")
-    ax.set_title("2. Where the budget actually goes")
+    ax.set_title("2. Where the budget goes (Qwen2.5-7B, TP=1)")
     ax.legend(frameon=False, fontsize=7, loc="upper left", ncol=2)
 
     overshoot = (bottom - budget)
@@ -150,7 +163,7 @@ def panel_naive_vs_measured(ax: plt.Axes, df: pd.DataFrame) -> str:
         "log_model_loading_gib",
         "log_kv_cache_in_use_gib",
     ]
-    d = df.dropna(subset=need)
+    d = pin_slice(df).dropna(subset=need)
     if d.empty:
         ax.text(0.5, 0.5, "not measured", ha="center", va="center", transform=ax.transAxes)
         return "not measured"
@@ -183,7 +196,7 @@ def panel_naive_vs_measured(ax: plt.Axes, df: pd.DataFrame) -> str:
                 markeredgewidth=1.3, markeredgecolor=st["color"], **st)
     ax.set_xlabel("gpu_memory_utilization")
     ax.set_ylabel("KV cache pool (GiB)")
-    ax.set_title("3. Naive estimate vs what the engine got")
+    ax.set_title("3. Naive estimate vs measured (Qwen2.5-7B, TP=1)")
     ax.legend(frameon=False, fontsize=8, loc="upper left")
 
     naive = g[("naive_gib", "median")].to_numpy(dtype=float)
