@@ -1,0 +1,38 @@
+# PagedAttention block granularity and KV cache dtype, measured directly.
+#
+#   sbatch slurm/run_sweep.sh configs/envelope_block.yaml
+#
+# The sibling project already swept block_size {16,32,64} x kv_cache_dtype
+# {auto,fp8} under load and those artifacts are mined rather than re-measured.
+# This sweep widens the block axis to 8 and 128 and measures the quantity P1 did
+# not isolate: how many blocks the engine allocates, and therefore how the pool
+# size in *tokens* responds to granularity.
+#
+# fp8 on A100 (sm80) is a pure storage play: there are no native fp8 tensor
+# cores, so the attention kernel dequantises on read. The expected effect is
+# exactly 2x the cached tokens for the same bytes, and nothing else.
+name: envelope-block
+
+repetitions: 3
+warmup_repetitions: 1
+
+models:
+  Qwen/Qwen2.5-7B-Instruct:
+    path: /mnt/tier2/project/p201362/ttahmid/inference-work/hf_cache/hub/models--Qwen--Qwen2.5-7B-Instruct/snapshots/a09a35458c702b33eeacc393d103063234e8bc28
+    revision: a09a35458c702b33eeacc393d103063234e8bc28
+
+model: Qwen/Qwen2.5-7B-Instruct
+
+engine:
+  max_model_len: 8192
+  max_num_seqs: 256
+  gpu_memory_utilization: 0.90
+  dtype: bfloat16
+  tensor_parallel_size: 1
+  enable_prefix_caching: false
+  seed: 0
+  port: 8100
+
+axes:
+  block_size: [8, 16, 32, 64, 128]
+  kv_cache_dtype: [auto, fp8]

@@ -125,7 +125,7 @@ def main() -> int:
         for model_id in HUB_CANDIDATES:
             try:
                 loaded = fetch_from_hub(model_id)
-            except Exception as exc:  # noqa: BLE001 - every failure is data
+            except Exception as exc:  # every failure is data, not a reason to stop
                 records.append(
                     {
                         "model_id": model_id,
@@ -161,7 +161,8 @@ def main() -> int:
         for r in ok
         if isinstance(r.get("shape"), dict) and r["shape"].get("supported")  # type: ignore[union-attr]
     }
-    print(f"\n{len(ok)}/{len(records)} configs obtained; distinct GQA ratios: {sorted(set(ratios.values()))}")
+    distinct = sorted(set(ratios.values()))
+    print(f"\n{len(ok)}/{len(records)} configs obtained; distinct GQA ratios: {distinct}")
     for m, r in sorted(ratios.items(), key=lambda kv: kv[1]):
         print(f"  {r:6.1f}x  {m}")
     return 0

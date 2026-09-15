@@ -1,0 +1,37 @@
+# Two-point pipeline validation: submit -> launch -> scrape -> artifact -> parse.
+# Nothing is widened until this produces two real artifacts and one occupancy
+# phase with a non-null KV usage series.
+#
+#   sbatch slurm/run_sweep.sh configs/validate_7b.yaml
+#
+name: validate
+
+repetitions: 1
+warmup_repetitions: 0
+
+models:
+  Qwen/Qwen2.5-7B-Instruct:
+    path: /mnt/tier2/project/p201362/ttahmid/inference-work/hf_cache/hub/models--Qwen--Qwen2.5-7B-Instruct/snapshots/a09a35458c702b33eeacc393d103063234e8bc28
+    revision: a09a35458c702b33eeacc393d103063234e8bc28
+
+model: Qwen/Qwen2.5-7B-Instruct
+
+engine:
+  max_num_seqs: 64
+  gpu_memory_utilization: 0.90
+  block_size: 16
+  kv_cache_dtype: auto
+  dtype: bfloat16
+  tensor_parallel_size: 1
+  enable_prefix_caching: false
+  seed: 0
+  port: 8100
+
+axes:
+  max_model_len: [2048, 4096]
+
+occupancy:
+  sample_interval_s: 0.5
+  request_timeout_s: 900
+  phases:
+    - {concurrency: 8, num_requests: 8, input_tokens: 1024, output_tokens: 128}

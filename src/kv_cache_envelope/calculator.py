@@ -21,10 +21,19 @@ of MHA, and it is recorded in :attr:`ModelKVShape.kv_heads_source`.
 
 Three further details separate a correct answer from a plausible one:
 
+**The MHA fallback is itself a trap, and Falcon is the counterexample.** HF's
+documented default when `num_key_value_heads` is absent is MHA, but
+`tiiuae/falcon-7b` omits the field *and* is multi-query: it states
+`multi_query: true` with 71 attention heads and a single KV head. Falling back to
+the query head count there overstates its cache by 71x, which is the same class
+of error as the GQA trap wearing a different hat. :func:`_resolve_kv_heads`
+therefore applies the Falcon config's own derivation rules before the fallback,
+and every use of the fallback is recorded so it can be audited rather than
+trusted.
+
 * **`head_dim` is not always `hidden_size // num_attention_heads`.** Newer configs
-  state it explicitly and some models (Llama-3.2-1B, Gemma) use a value that does
-  not divide out. Prefer the explicit field; derive only as a fallback, and record
-  which happened.
+  state it explicitly and some models use a value that does not divide out. Prefer
+  the explicit field; derive only as a fallback, and record which happened.
 * **Sliding-window attention caps the cached span.** A window model holds
   `min(seq_len, window)` tokens per layer, not `seq_len`. Qwen2.5 carries a
   `sliding_window` key with `use_sliding_window: false`, so the key alone does not
@@ -43,6 +52,18 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from typing import Any, Literal
+
+import structlog
+
+log = structlog.get_logger(__name__)
+
+KVHeadsSource = Literal[
+    "config",  # num_key_value_heads stated outright
+    "falcon_new_decoder_architecture",  # Falcon-40B shape: num_kv_heads field
+    "falcon_multi_query",  # Falcon-7B shape: multi_query: true => 1 KV head
+    "multi_query_flag",  # a non-Falcon config asserting MQA the same way
+    "mha_fallback",  # field absent and nothing says otherwise: HF's MHA default
+]
 
 __all__ = [
     "DTYPE_BYTES",
@@ -116,7 +137,7 @@ class ModelKVShape:
     sliding_window: int | None = None
 
     head_dim_source: Literal["config", "derived"] = "config"
-    kv_heads_source: Literal["config", "mha_fallback"] = "config"
+    kv_heads_source: KVHeadsSource = "config"
 
     # Ground-truth identifiers, copied from the source, never typed.
     revision: str | None = None
@@ -152,6 +173,50 @@ def _require_int(config: dict[str, Any], *names: str) -> int:
     raise UnsupportedArchitecture(
         f"config states none of {names!r}; cannot determine KV cache shape"
     )
+
+
+def _resolve_kv_heads(
+    config: dict[str, Any], *, heads: int, model_id: str, archs: list[Any]
+) -> tuple[int, KVHeadsSource]:
+    """How many heads' worth of K and V this model actually caches.
+
+    An explicit count wins. Failing that, Falcon's own two-boolean derivation is
+    applied, because Falcon omits `num_key_value_heads` while being multi-query
+    and the generic MHA fallback would overstate its cache by the full head count
+    (71x on falcon-7b). Only when nothing in the config says otherwise does the
+    HF-documented MHA default apply, and that path is logged.
+    """
+    kv_raw = config.get("num_key_value_heads")
+    if isinstance(kv_raw, int) and kv_raw > 0:
+        return kv_raw, "config"
+
+    is_falcon = config.get("model_type") == "falcon" or any(
+        isinstance(a, str) and ("Falcon" in a or a.startswith("RW")) for a in archs
+    )
+    if is_falcon:
+        # transformers' FalconConfig: the new decoder architecture states
+        # num_kv_heads outright; otherwise multi_query selects between 1 and MHA.
+        if config.get("new_decoder_architecture"):
+            n = config.get("num_kv_heads")
+            if isinstance(n, int) and n > 0:
+                return n, "falcon_new_decoder_architecture"
+        elif config.get("multi_query"):
+            return 1, "falcon_multi_query"
+
+    n = config.get("num_kv_heads")
+    if isinstance(n, int) and n > 0:
+        return n, "config"
+    if config.get("multi_query") is True:
+        return 1, "multi_query_flag"
+
+    log.warning(
+        "kv_heads_absent_assuming_mha",
+        model_id=model_id,
+        num_attention_heads=heads,
+        detail="config states no num_key_value_heads and nothing indicates MQA; "
+        "using HF's documented MHA default. Audit this before trusting the number.",
+    )
+    return heads, "mha_fallback"
 
 
 def shape_from_config(
@@ -191,13 +256,9 @@ def shape_from_config(
     layers = _require_int(config, "num_hidden_layers", "n_layer", "num_layers")
     heads = _require_int(config, "num_attention_heads", "n_head", "num_heads")
 
-    kv_raw = config.get("num_key_value_heads", config.get("num_kv_heads"))
-    if isinstance(kv_raw, int) and kv_raw > 0:
-        kv_heads, kv_src = kv_raw, "config"
-    else:
-        # HF's documented meaning of an absent num_key_value_heads is MHA. This is
-        # the only path on which the query head count is a legitimate answer.
-        kv_heads, kv_src = heads, "mha_fallback"
+    archs_raw = config.get("architectures")
+    archs = archs_raw if isinstance(archs_raw, list) else []
+    kv_heads, kv_src = _resolve_kv_heads(config, heads=heads, model_id=model_id, archs=archs)
 
     hidden = config.get("hidden_size", config.get("n_embd"))
     hd_raw = config.get("head_dim")
@@ -224,7 +285,6 @@ def shape_from_config(
     if use_window is False or not isinstance(window, int) or window <= 0:
         window = None
 
-    archs = config.get("architectures")
     return ModelKVShape(
         model_id=model_id,
         num_hidden_layers=layers,
@@ -232,7 +292,7 @@ def shape_from_config(
         num_key_value_heads=kv_heads,
         head_dim=head_dim,
         model_type=config.get("model_type"),
-        architecture=archs[0] if isinstance(archs, list) and archs else None,
+        architecture=archs[0] if archs else None,
         hidden_size=hidden if isinstance(hidden, int) else None,
         max_position_embeddings=config.get("max_position_embeddings"),
         torch_dtype=config.get("torch_dtype") or config.get("dtype"),
@@ -324,10 +384,16 @@ def kv_bytes(
 
 
 def max_tokens_in_budget(
-    shape: ModelKVShape, budget_bytes: int, *, kv_cache_dtype: str = "auto"
+    shape: ModelKVShape,
+    budget_bytes: int,
+    *,
+    kv_cache_dtype: str = "auto",
+    dtype_bytes: int | None = None,
 ) -> int:
     """How many cached tokens fit in a KV pool of ``budget_bytes``."""
-    return budget_bytes // kv_bytes_per_token(shape, kv_cache_dtype=kv_cache_dtype)
+    return budget_bytes // kv_bytes_per_token(
+        shape, kv_cache_dtype=kv_cache_dtype, dtype_bytes=dtype_bytes
+    )
 
 
 def max_concurrent_sequences(
@@ -336,6 +402,7 @@ def max_concurrent_sequences(
     *,
     seq_len: int,
     kv_cache_dtype: str = "auto",
+    dtype_bytes: int | None = None,
     block_size: int | None = None,
 ) -> int:
     """The capacity-planning answer: sequences of ``seq_len`` servable at once.
@@ -348,6 +415,7 @@ def max_concurrent_sequences(
         seq_len=seq_len,
         batch=1,
         kv_cache_dtype=kv_cache_dtype,
+        dtype_bytes=dtype_bytes,
         block_size=block_size,
     )
     if per_seq <= 0:

@@ -83,6 +83,59 @@ class TestShapeExtraction:
         assert s.kv_heads_source == "mha_fallback"
         assert s.attention_kind == "MHA"
 
+    def test_falcon_7b_multi_query_is_one_kv_head_not_seventy_one(self) -> None:
+        """The MHA fallback is a trap of its own, and Falcon is where it bites.
+
+        falcon-7b omits `num_key_value_heads` entirely and states `multi_query:
+        true` with 71 attention heads. Falling back to the query head count there
+        overstates the cache by 71x. Fields verbatim from the fetched bundle at
+        revision ec89142b67d748a1865ea4451372db8313ada0d8.
+        """
+        cfg = {
+            "architectures": ["FalconForCausalLM"],
+            "model_type": "falcon",
+            "hidden_size": 4544,
+            "num_attention_heads": 71,
+            "num_hidden_layers": 32,
+            "multi_query": True,
+            "torch_dtype": "bfloat16",
+        }
+        s = shape_from_config(cfg, model_id="tiiuae/falcon-7b")
+        assert s.num_key_value_heads == 1
+        assert s.kv_heads_source == "falcon_multi_query"
+        assert s.attention_kind == "MQA"
+        assert s.head_dim == 4544 // 71 == 64
+        assert kv_bytes_per_token(s) == 2 * 32 * 1 * 64 * 2
+        naive_mha = 2 * 32 * 71 * 64 * 2
+        assert naive_mha == 71 * kv_bytes_per_token(s)
+
+    def test_falcon_new_decoder_architecture_uses_num_kv_heads(self) -> None:
+        cfg = {
+            "model_type": "falcon",
+            "hidden_size": 8192,
+            "num_attention_heads": 128,
+            "num_hidden_layers": 60,
+            "new_decoder_architecture": True,
+            "num_kv_heads": 8,
+            "multi_query": True,
+            "torch_dtype": "bfloat16",
+        }
+        s = shape_from_config(cfg, model_id="synthetic/falcon-new-decoder")
+        assert s.num_key_value_heads == 8
+        assert s.kv_heads_source == "falcon_new_decoder_architecture"
+
+    def test_generic_multi_query_flag_is_honoured(self) -> None:
+        cfg = {
+            "model_type": "somethingelse",
+            "hidden_size": 2048,
+            "num_attention_heads": 16,
+            "num_hidden_layers": 24,
+            "multi_query": True,
+            "torch_dtype": "bfloat16",
+        }
+        s = shape_from_config(cfg, model_id="synthetic/mq-flag")
+        assert (s.num_key_value_heads, s.kv_heads_source) == (1, "multi_query_flag")
+
     def test_mqa_is_one_kv_head(self) -> None:
         cfg = {**QWEN_7B, "num_key_value_heads": 1}
         s = shape_from_config(cfg, model_id="synthetic/mqa")
@@ -302,6 +355,21 @@ class TestAgainstFetchedConfigs:
     def test_every_bundle_carries_a_revision(self, bundles: list) -> None:
         missing = [b.model_id for b in bundles if not b.revision]
         assert not missing, f"bundles without a recorded revision: {missing}"
+
+    def test_mha_fallback_is_never_used_on_a_config_that_declares_mqa(
+        self, bundles: list
+    ) -> None:
+        """Regression guard for the Falcon bug, checked against every real config."""
+        for b in bundles:
+            try:
+                s = shape_from_config(b.config, model_id=b.model_id, revision=b.revision)
+            except UnsupportedArchitecture:
+                continue
+            if s.kv_heads_source == "mha_fallback":
+                assert not b.config.get("multi_query"), (
+                    f"{b.model_id} declares multi_query but resolved via the MHA fallback"
+                )
+                assert "num_kv_heads" not in b.config
 
     def test_bundle_config_is_verbatim_json(self, bundles: list) -> None:
         for b in bundles:

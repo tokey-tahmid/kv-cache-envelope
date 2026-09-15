@@ -1,0 +1,40 @@
+# The OOM boundary, swept from both directions at full context.
+#
+#   sbatch slurm/run_sweep.sh configs/envelope_gmu.yaml
+#
+# max_model_len is pinned at 32768 (the model's maximum) so that BOTH failure
+# boundaries are reachable on one axis:
+#
+#   * low  gpu_memory_utilization -> the pool cannot hold one full-length
+#     sequence and vLLM refuses to start ("kv_cache_too_small"). This is a
+#     measured capacity limit, not a crash.
+#   * high gpu_memory_utilization -> profiling or CUDA graph capture runs the
+#     card out of memory ("oom").
+#
+# Both are recorded as artifacts with their status. The failure points ARE the
+# headline numbers; dropping them would leave the envelope looking open-ended.
+name: envelope-gmu
+
+repetitions: 3
+warmup_repetitions: 1
+
+models:
+  Qwen/Qwen2.5-7B-Instruct:
+    path: /mnt/tier2/project/p201362/ttahmid/inference-work/hf_cache/hub/models--Qwen--Qwen2.5-7B-Instruct/snapshots/a09a35458c702b33eeacc393d103063234e8bc28
+    revision: a09a35458c702b33eeacc393d103063234e8bc28
+
+model: Qwen/Qwen2.5-7B-Instruct
+
+engine:
+  max_model_len: 32768
+  max_num_seqs: 256
+  block_size: 16
+  kv_cache_dtype: auto
+  dtype: bfloat16
+  tensor_parallel_size: 1
+  enable_prefix_caching: false
+  seed: 0
+  port: 8100
+
+axes:
+  gpu_memory_utilization: [0.38, 0.40, 0.42, 0.44, 0.46, 0.50, 0.60, 0.70, 0.80, 0.90, 0.95, 0.97, 0.99]

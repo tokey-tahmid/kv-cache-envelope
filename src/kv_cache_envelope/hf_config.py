@@ -139,4 +139,5 @@ def read_bundle(path: Path) -> LoadedConfig:
 
 
 def read_all_bundles(dest_dir: Path) -> list[LoadedConfig]:
-    return [read_bundle(p) for p in sorted(Path(dest_dir).glob("*.json")) if p.name != "MANIFEST.json"]
+    paths = sorted(Path(dest_dir).glob("*.json"))
+    return [read_bundle(p) for p in paths if p.name != "MANIFEST.json"]
