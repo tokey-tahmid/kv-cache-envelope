@@ -35,7 +35,35 @@ BUNDLES = REPO / "configs" / "model_configs"
 
 
 def _md(df: pd.DataFrame) -> str:
-    return df.to_markdown(index=False)
+    """Render a DataFrame as a markdown table.
+
+    Hand-rolled rather than `DataFrame.to_markdown`, which needs `tabulate`.
+    That package is not in the shared harness venv, and the venv is shared with
+    the sibling project: adding a dependency to it to save fifteen lines here
+    would change the environment every one of that project's artifacts was
+    measured in. Fifteen lines is cheaper than that.
+    """
+    if df.empty:
+        return "_(no rows)_"
+    cols = [str(c) for c in df.columns]
+
+    def cell(v: object) -> str:
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return ""
+        if isinstance(v, float):
+            return f"{v:g}"
+        return str(v).replace("|", "\\|").replace("\n", " ")
+
+    rows = [[cell(v) for v in rec] for rec in df.itertuples(index=False, name=None)]
+    widths = [
+        max(len(cols[i]), *(len(r[i]) for r in rows)) if rows else len(cols[i])
+        for i in range(len(cols))
+    ]
+    out = ["| " + " | ".join(c.ljust(w) for c, w in zip(cols, widths, strict=True)) + " |"]
+    out.append("|" + "|".join("-" * (w + 2) for w in widths) + "|")
+    for r in rows:
+        out.append("| " + " | ".join(v.ljust(w) for v, w in zip(r, widths, strict=True)) + " |")
+    return "\n".join(out)
 
 
 def table_calculator_validation() -> str:
