@@ -1,0 +1,39 @@
+{
+  "config": {
+    "alibi": false,
+    "apply_residual_connection_post_layernorm": false,
+    "architectures": [
+      "FalconForCausalLM"
+    ],
+    "attention_dropout": 0.0,
+    "auto_map": {
+      "AutoConfig": "configuration_falcon.FalconConfig",
+      "AutoModel": "modeling_falcon.FalconModel",
+      "AutoModelForCausalLM": "modeling_falcon.FalconForCausalLM",
+      "AutoModelForQuestionAnswering": "modeling_falcon.FalconForQuestionAnswering",
+      "AutoModelForSequenceClassification": "modeling_falcon.FalconForSequenceClassification",
+      "AutoModelForTokenClassification": "modeling_falcon.FalconForTokenClassification"
+    },
+    "bias": false,
+    "bos_token_id": 11,
+    "eos_token_id": 11,
+    "hidden_dropout": 0.0,
+    "hidden_size": 4544,
+    "initializer_range": 0.02,
+    "layer_norm_epsilon": 1e-05,
+    "model_type": "falcon",
+    "multi_query": true,
+    "new_decoder_architecture": false,
+    "num_attention_heads": 71,
+    "num_hidden_layers": 32,
+    "parallel_attn": true,
+    "torch_dtype": "bfloat16",
+    "transformers_version": "4.27.4",
+    "use_cache": true,
+    "vocab_size": 65024
+  },
+  "model_id": "tiiuae/falcon-7b",
+  "revision": "ec89142b67d748a1865ea4451372db8313ada0d8",
+  "source": "huggingface_hub",
+  "source_path": "/mnt/tier2/project/p201362/ttahmid/inference-work/hf_cache/hub/models--tiiuae--falcon-7b/snapshots/ec89142b67d748a1865ea4451372db8313ada0d8/config.json"
+}

@@ -1,0 +1,46 @@
+{
+  "config": {
+    "architectures": [
+      "LlamaForCausalLM"
+    ],
+    "attention_bias": false,
+    "attention_dropout": 0.0,
+    "bos_token_id": 1,
+    "eos_token_id": 2,
+    "hidden_act": "silu",
+    "hidden_size": 2048,
+    "initializer_range": 0.02,
+    "intermediate_size": 8192,
+    "max_position_embeddings": 8192,
+    "mlp_bias": false,
+    "model_type": "llama",
+    "num_attention_heads": 32,
+    "num_hidden_layers": 24,
+    "num_key_value_heads": 32,
+    "pad_token_id": 2,
+    "pretraining_tp": 1,
+    "rms_norm_eps": 1e-05,
+    "rope_scaling": null,
+    "rope_theta": 130000,
+    "tie_word_embeddings": true,
+    "torch_dtype": "bfloat16",
+    "transformers.js_config": {
+      "dtype": "q4",
+      "kv_cache_dtype": {
+        "fp16": "float16",
+        "q4f16": "float16"
+      },
+      "use_external_data_format": {
+        "model.onnx": true,
+        "model_fp16.onnx": true
+      }
+    },
+    "transformers_version": "4.42.3",
+    "use_cache": true,
+    "vocab_size": 49152
+  },
+  "model_id": "HuggingFaceTB/SmolLM2-1.7B-Instruct",
+  "revision": "31b70e2e869a7173562077fd711b654946d38674",
+  "source": "huggingface_hub",
+  "source_path": "/mnt/tier2/project/p201362/ttahmid/inference-work/hf_cache/hub/models--HuggingFaceTB--SmolLM2-1.7B-Instruct/snapshots/31b70e2e869a7173562077fd711b654946d38674/config.json"
+}

@@ -1,0 +1,2 @@
+0.27.1
+/usr/local/lib/python3.12/dist-packages/vllm
