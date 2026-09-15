@@ -1,0 +1,38 @@
+{
+  "harness": {
+    "python": "3.12.14",
+    "uv": "0.12.5"
+  },
+  "images": {
+    "sglang": {
+      "digest": "sha256:9e148f5ac788e856a06166bd6347a831831eb9fcfab4d1770874823a7c29a1a1",
+      "interpreter": "python3",
+      "pulled_utc": "2026-08-25T16:07:34Z",
+      "repo": "lmsysorg/sglang",
+      "sif": "/mnt/tier2/project/p201362/ttahmid/inference-work/images/sglang.sif",
+      "sif_bytes": "12142731264",
+      "tag_at_pull": "latest",
+      "version": "0.5.18"
+    },
+    "vllm": {
+      "digest": "sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967",
+      "interpreter": "python3",
+      "pulled_utc": "2026-08-25T15:16:43Z",
+      "repo": "vllm/vllm-openai",
+      "sif": "/mnt/tier2/project/p201362/ttahmid/inference-work/images/vllm.sif",
+      "sif_bytes": "8094322688",
+      "tag_at_pull": "latest",
+      "version": "0.27.1"
+    }
+  },
+  "models": {
+    "Qwen_Qwen2_5-32B-Instruct": {
+      "repo": "Qwen/Qwen2.5-32B-Instruct",
+      "revision": "5ede1c97bbab6ce5cda5812749b4c0bdf79b18dd"
+    },
+    "Qwen_Qwen2_5-7B-Instruct": {
+      "repo": "Qwen/Qwen2.5-7B-Instruct",
+      "revision": "a09a35458c702b33eeacc393d103063234e8bc28"
+    }
+  }
+}
