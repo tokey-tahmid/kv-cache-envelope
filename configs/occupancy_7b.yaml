@@ -1,0 +1,58 @@
+# Deliberate oversubscription: fill the KV pool past capacity and watch what
+# PagedAttention does about it.
+#
+#   sbatch --array=0-1 slurm/run_sweep.sh configs/occupancy_7b.yaml
+#
+# The prediction under test is sharp and comes straight from the calculator:
+# with a pool of T tokens and every sequence holding max_model_len tokens at the
+# end of its life, the engine can hold floor(T / max_model_len) sequences
+# resident. Below that concurrency nothing should be preempted; above it,
+# preemption must appear, and it should appear at the predicted concurrency
+# rather than at some arbitrary point.
+#
+# Shape of each request: 512 prompt tokens, 1536 generated, so 2048 = the full
+# configured context by the time it finishes. Short prompts matter: the
+# scheduler admits on what a request needs *now*, so 256 short prompts are all
+# admitted immediately and only then grow into contention. A long-prompt
+# workload would be rejected at admission instead and would measure queueing,
+# not preemption.
+#
+# gpu_memory_utilization is the axis because it is the knob that sets the pool,
+# and the low values shrink capacity enough that max_num_seqs=256 can
+# oversubscribe it several times over.
+name: occupancy
+
+repetitions: 3
+warmup_repetitions: 1
+
+models:
+  Qwen/Qwen2.5-7B-Instruct:
+    path: /mnt/tier2/project/p201362/ttahmid/inference-work/hf_cache/hub/models--Qwen--Qwen2.5-7B-Instruct/snapshots/a09a35458c702b33eeacc393d103063234e8bc28
+    revision: a09a35458c702b33eeacc393d103063234e8bc28
+
+model: Qwen/Qwen2.5-7B-Instruct
+
+engine:
+  max_model_len: 2048
+  max_num_seqs: 256
+  block_size: 16
+  kv_cache_dtype: auto
+  dtype: bfloat16
+  tensor_parallel_size: 1
+  enable_prefix_caching: false
+  seed: 0
+  port: 8100
+
+axes:
+  gpu_memory_utilization: [0.60, 0.70, 0.80, 0.90]
+
+occupancy:
+  sample_interval_s: 0.5
+  request_timeout_s: 1200
+  phases:
+    - {concurrency: 32,  num_requests: 32,  input_tokens: 512, output_tokens: 1536}
+    - {concurrency: 64,  num_requests: 64,  input_tokens: 512, output_tokens: 1536}
+    - {concurrency: 96,  num_requests: 96,  input_tokens: 512, output_tokens: 1536}
+    - {concurrency: 128, num_requests: 128, input_tokens: 512, output_tokens: 1536}
+    - {concurrency: 192, num_requests: 192, input_tokens: 512, output_tokens: 1536}
+    - {concurrency: 256, num_requests: 256, input_tokens: 512, output_tokens: 1536}
