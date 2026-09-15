@@ -1,0 +1,41 @@
+# Re-measure the three boundary configurations whose failures the first version
+# of classify_failure could not name.
+#
+#   sbatch slurm/run_sweep.sh configs/boundary_recheck.yaml
+#
+# The original artifacts are correct and stay as they are: raw artifacts are
+# append-only, and "launch_failed with this error text" was an honest record of
+# what the harness knew at the time. What it was not is *specific*, and the
+# specificity is the result here. The classifier now carries the exact wordings
+# copied out of the engine logs, so this sweep re-runs only those three points
+# under a distinct sweep name and labels each with the boundary it actually is.
+#
+# Expected, from the engine logs of the first run (jobs 5211479 and 5211480):
+#   gmu 0.40 at L=32768 -> kv_cache_too_small
+#   gmu 0.99 at L=32768 -> budget_exceeds_free
+#   block_size 8        -> backend_unsupported (FlashAttention on sm80)
+name: boundary-recheck
+
+repetitions: 3
+warmup_repetitions: 1
+
+models:
+  Qwen/Qwen2.5-7B-Instruct:
+    path: /mnt/tier2/project/p201362/ttahmid/inference-work/hf_cache/hub/models--Qwen--Qwen2.5-7B-Instruct/snapshots/a09a35458c702b33eeacc393d103063234e8bc28
+    revision: a09a35458c702b33eeacc393d103063234e8bc28
+
+model: Qwen/Qwen2.5-7B-Instruct
+
+engine:
+  max_model_len: 32768
+  max_num_seqs: 256
+  block_size: 16
+  kv_cache_dtype: auto
+  dtype: bfloat16
+  tensor_parallel_size: 1
+  enable_prefix_caching: false
+  seed: 0
+  port: 8100
+
+axes:
+  gpu_memory_utilization: [0.40, 0.99]

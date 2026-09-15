@@ -30,7 +30,23 @@ import structlog
 
 log = structlog.get_logger(__name__)
 
-RunStatus = Literal["ok", "failed", "oom", "timeout", "launch_failed", "unsupported"]
+# Statuses this project actually produces. The four failure modes below are
+# distinct measured boundaries, not shades of "it broke": see
+# engine.classify_failure for what separates them and why collapsing them
+# throws away the result.
+RunStatus = Literal[
+    "ok",
+    "failed",
+    "timeout",
+    "launch_failed",
+    "unsupported",
+    "kv_cache_too_small",   # pool cannot hold one sequence of max_model_len
+    "budget_exceeds_free",  # requested budget > free memory, refused pre-flight
+    "oom_no_cache_blocks",  # profiling left nothing for the cache
+    "oom_profiling",        # CUDA OOM during profiling or graph capture
+    "backend_unsupported",  # attention backend rejects the configuration itself
+    "oom",                  # produced by earlier runs of this harness; see notes
+]
 
 # Fields that must be non-empty for an artifact to be writable at all. A run that
 # cannot say what hardware or software produced it is not a measurement.

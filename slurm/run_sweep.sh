@@ -60,9 +60,12 @@ nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv,nohea
 # typo would otherwise be discovered several minutes into a billed node.
 "$PY" -m compileall -q "${HERE}/src" || { log "compileall FAILED"; exit 1; }
 
-# Single GPU per engine. The node bills whole regardless, but a TP=1 engine that
-# can see four cards will size its KV pool against the wrong device count.
-export CUDA_VISIBLE_DEVICES=0
+# One GPU per engine by default. The node bills whole regardless, but leaving all
+# four visible to a TP=1 engine makes the free-memory figure in its profiling
+# depend on what else is resident on the node. Override for TP>1 sweeps:
+#   sbatch --export=ALL,KVE_GPUS=0,1,2,3 slurm/run_sweep.sh configs/envelope_32b.yaml
+export CUDA_VISIBLE_DEVICES="${KVE_GPUS:-0}"
+log "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
 SLICE_ARG=()
 if [[ -n "${SLURM_ARRAY_TASK_ID:-}" && -n "${SLURM_ARRAY_TASK_COUNT:-}" ]]; then

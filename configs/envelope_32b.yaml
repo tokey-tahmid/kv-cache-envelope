@@ -1,0 +1,39 @@
+# Second model, measured rather than only computed.
+#
+#   sbatch slurm/run_sweep.sh configs/envelope_32b.yaml
+#
+# The calculator is validated against eleven model configs on paper, but paper
+# validation only checks that the arithmetic matches the config file. This sweep
+# checks it against a *running engine* on a second model with a different
+# attention shape: Qwen2.5-32B is 64 layers and 8 KV heads to 40 query heads
+# (GQA 5:1) against Qwen2.5-7B's 28 layers and 4 KV heads to 28 (GQA 7:1), so
+# its per-token cache is 2*64*8*128*2 = 262144 bytes, 4.57x the 7B's 57344.
+#
+# 32B bf16 is about 62 GiB of weights, so TP>=2 is forced. At TP=2 roughly 31 GiB
+# per card of a usable 39.67 leaves a thin KV pool, which is itself the point:
+# it is the regime where the residual terms dominate the budget.
+name: envelope-32b
+
+repetitions: 3
+warmup_repetitions: 1
+
+models:
+  Qwen/Qwen2.5-32B-Instruct:
+    path: /mnt/tier2/project/p201362/ttahmid/inference-work/hf_cache/hub/models--Qwen--Qwen2.5-32B-Instruct/snapshots/5ede1c97bbab6ce5cda5812749b4c0bdf79b18dd
+    revision: 5ede1c97bbab6ce5cda5812749b4c0bdf79b18dd
+
+model: Qwen/Qwen2.5-32B-Instruct
+
+engine:
+  max_model_len: 8192
+  max_num_seqs: 256
+  block_size: 16
+  kv_cache_dtype: auto
+  dtype: bfloat16
+  enable_prefix_caching: false
+  seed: 0
+  port: 8100
+
+axes:
+  tensor_parallel_size: [2, 4]
+  gpu_memory_utilization: [0.90]

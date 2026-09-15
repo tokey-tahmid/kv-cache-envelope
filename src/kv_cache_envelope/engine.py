@@ -182,21 +182,45 @@ _RE_KV_IN_USE = re.compile(r"Current kv cache memory in use is\s*([\d.]+)\s*GiB"
 _RE_INIT_TOOK = re.compile(r"init engine \(profile, create kv cache, warmup model\) took\s*([\d.]+)\s*s")
 _RE_MODEL_LOAD = re.compile(r"Model loading took\s*([\d.]+)\s*GiB and\s*([\d.]+)\s*seconds")
 
-# Failure shapes worth distinguishing. "the KV cache cannot hold one sequence" is
-# a capacity boundary and belongs in the envelope; a CUDA OOM is a different
-# boundary; anything else is a launch failure and must not be conflated with
-# either.
+# Failure shapes worth distinguishing. Five were observed in this project's own
+# sweeps, and every pattern below is copied from the engine log it came out of
+# rather than written from memory. The first version of this classifier had
+# guessed wordings for two of them, matched neither, and filed three genuinely
+# different boundaries under one "launch_failed" bucket. That is the whole
+# result thrown away: the failure point is the headline number here.
+#
+#   kv_cache_too_small   the pool cannot hold ONE sequence of max_model_len.
+#                        vLLM refuses to start and states the longest model
+#                        length the available memory *would* have supported.
+#   oom_no_cache_blocks  profiling left nothing at all for the cache.
+#   oom_profiling        CUDA ran out during profiling or graph capture.
+#   budget_exceeds_free  the requested budget is larger than the memory free
+#                        before anything was allocated; refused pre-flight.
+#   backend_unsupported  the attention backend rejects the configuration itself
+#                        (block_size=8 here). Not a memory boundary at all, and
+#                        must never be plotted as one.
 _RE_KV_TOO_SMALL = re.compile(
+    r"To serve at least one request with the model's max seq len \(([\d,]+)\), "
+    r"\(?([\d.]+) GiB KV cache is needed, which is larger than the available KV cache "
+    r"memory \(([\d.]+) GiB\)\.",
+    re.IGNORECASE,
+)
+_RE_EST_MAX_LEN = re.compile(r"estimated maximum model length is ([\d,]+)")
+# Older wording, kept so an image pin in either direction still classifies.
+_RE_KV_TOO_SMALL_ALT = re.compile(
     r"max seq len \(([\d,]+)\) is larger than the maximum number of tokens "
     r"that can be stored in KV cache \(([\d,]+)\)",
     re.IGNORECASE,
 )
-_RE_OOM = re.compile(r"CUDA out of memory|torch\.OutOfMemoryError|CUDA error: out of memory")
-_RE_FREE_MEM_NEG = re.compile(
-    r"Free memory on startup.*is less than desired|"
-    r"is less than the desired GPU memory utilization|"
-    r"No available memory for the cache blocks",
+_RE_BUDGET_EXCEEDS_FREE = re.compile(
+    r"Free memory on device \S+ \(([\d.]+)/([\d.]+) GiB\) on startup is less than "
+    r"desired GPU memory utilization \(([\d.]+), ([\d.]+) GiB\)",
     re.IGNORECASE,
+)
+_RE_NO_CACHE_BLOCKS = re.compile(r"No available memory for the cache blocks", re.IGNORECASE)
+_RE_OOM = re.compile(r"CUDA out of memory|torch\.OutOfMemoryError|CUDA error: out of memory")
+_RE_NO_BACKEND = re.compile(
+    r"No valid attention backend found for \w+ with (AttentionSelectorConfig\([^)]*\))"
 )
 
 
@@ -250,18 +274,35 @@ def classify_failure(text: str) -> tuple[str, str | None]:
     those are the boundary.
     """
     if m := _RE_KV_TOO_SMALL.search(text):
+        est = _RE_EST_MAX_LEN.search(text)
+        msg = (
+            f"max_model_len={int(_num(m.group(1)))} needs {m.group(2)} GiB of KV cache but only "
+            f"{m.group(3)} GiB is available"
+        )
+        if est:
+            msg += f"; engine's own estimated maximum model length {int(_num(est.group(1)))}"
+        return "kv_cache_too_small", msg
+    if m := _RE_KV_TOO_SMALL_ALT.search(text):
         return (
             "kv_cache_too_small",
             f"max_model_len={int(_num(m.group(1)))} exceeds KV cache capacity "
             f"{int(_num(m.group(2)))} tokens",
         )
+    if m := _RE_BUDGET_EXCEEDS_FREE.search(text):
+        return (
+            "budget_exceeds_free",
+            f"requested gpu_memory_utilization {m.group(3)} = {m.group(4)} GiB but only "
+            f"{m.group(1)} GiB of {m.group(2)} GiB was free before allocation",
+        )
+    if _RE_NO_CACHE_BLOCKS.search(text):
+        return "oom_no_cache_blocks", "No available memory for the cache blocks"
+    if m := _RE_NO_BACKEND.search(text):
+        return "backend_unsupported", f"no attention backend accepts {m.group(1)[:400]}"
     if _RE_OOM.search(text):
         line = next(
             (ln.strip() for ln in text.splitlines() if _RE_OOM.search(ln)), "CUDA out of memory"
         )
-        return "oom", line[:600]
-    if m := _RE_FREE_MEM_NEG.search(text):
-        return "oom", m.group(0)[:600]
+        return "oom_profiling", line[:600]
     tail = "\n".join(text.strip().splitlines()[-12:])
     return "launch_failed", tail[:1200]
 
