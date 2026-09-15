@@ -12,7 +12,14 @@
 # 32B bf16 is about 62 GiB of weights, so TP>=2 is forced. At TP=2 roughly 31 GiB
 # per card of a usable 39.67 leaves a thin KV pool, which is itself the point:
 # it is the regime where the residual terms dominate the budget.
-name: envelope-32b
+#
+# v2: the first attempt (sweep `envelope-32b`, job 5213931) measured the harness
+# rather than the model. Its first launch succeeded and every repetition after it
+# failed with `budget_exceeds_free` reporting 2.78 GiB free on an idle card,
+# because the driver had not finished reclaiming the previous engine's 31 GiB of
+# weights. Those artifacts are kept: they are the evidence for the defect. The
+# probe now waits for device memory to drop before the next launch.
+name: envelope-32b-v2
 
 repetitions: 3
 warmup_repetitions: 1

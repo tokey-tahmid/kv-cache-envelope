@@ -26,6 +26,7 @@ from .calculator import (
     ModelKVShape,
     kv_bytes,
     kv_bytes_per_token,
+    kv_heads_per_rank,
     max_concurrent_sequences,
     resolve_dtype_bytes,
     shape_from_config,
@@ -114,9 +115,18 @@ def prediction_block(
         dtype_bytes = resolve_dtype_bytes(spec.kv_cache_dtype, shape)
     except ValueError as exc:
         return {"error": str(exc)}
-    per_token = kv_bytes_per_token(shape, dtype_bytes=dtype_bytes)
+    tp = spec.tensor_parallel_size
+    # Per-GPU, not per-model: tensor parallelism shards the KV heads across
+    # ranks, so a TP=2 engine's pool holds twice the tokens per byte.
+    per_token = kv_bytes_per_token(shape, dtype_bytes=dtype_bytes, tensor_parallel_size=tp)
+    per_rank_heads, total_heads = kv_heads_per_rank(shape, tp)
     out: dict[str, Any] = {
         "kv_bytes_per_token": per_token,
+        "kv_bytes_per_token_unsharded": kv_bytes_per_token(shape, dtype_bytes=dtype_bytes),
+        "tensor_parallel_size": tp,
+        "kv_heads_per_rank": per_rank_heads,
+        "kv_heads_total_across_ranks": total_heads,
+        "kv_heads_replicated": total_heads != shape.num_key_value_heads,
         "kv_dtype_bytes": dtype_bytes,
         "num_hidden_layers": shape.num_hidden_layers,
         "num_key_value_heads": shape.num_key_value_heads,
@@ -133,6 +143,7 @@ def prediction_block(
             batch=1,
             dtype_bytes=dtype_bytes,
             block_size=spec.block_size,
+            tensor_parallel_size=tp,
         ),
     }
     if measured_tokens is not None:
@@ -147,6 +158,7 @@ def prediction_block(
             seq_len=spec.max_model_len,
             dtype_bytes=dtype_bytes,
             block_size=spec.block_size,
+            tensor_parallel_size=tp,
         )
     return out
 
@@ -218,6 +230,13 @@ def run_sweep(
                     occupancy_summary = _run_occupancy_phases(probe, cfg, spec)
             finally:
                 probe.stop()
+                # The driver reclaims device memory asynchronously, so the next
+                # launch must not start profiling against a card that still holds
+                # the last engine's weights. Recorded rather than merely waited
+                # on: a launch that began on a dirty card should be visible in
+                # its own artifact.
+                release = probe.wait_for_gpu_memory_release()
+                result.gpu_release = release
 
             measured_tokens = result.cache_config.get("kv_cache_size_tokens")
             if not isinstance(measured_tokens, int):
@@ -235,6 +254,7 @@ def run_sweep(
                 "raw_prometheus": result.raw_prometheus,
                 "nvidia_smi_used_mib": result.nvidia_smi_used_mib,
                 "log_tail": result.log_tail,
+                "gpu_memory_release_before_next_launch": jsonable(result.gpu_release),
                 "prediction": jsonable(prediction_block(shape, spec, measured_tokens)),
                 "model_kv_shape": jsonable(shape.as_dict()),
                 "occupancy": jsonable(occupancy_summary) if occupancy_summary else None,

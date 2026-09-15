@@ -72,6 +72,7 @@ __all__ = [
     "block_padded_tokens",
     "kv_bytes",
     "kv_bytes_per_token",
+    "kv_heads_per_rank",
     "max_concurrent_sequences",
     "max_tokens_in_budget",
     "shape_from_config",
@@ -345,19 +346,58 @@ def _cached_tokens(shape: ModelKVShape, seq_len: int, block_size: int | None) ->
     return block_padded_tokens(span, block_size)
 
 
+def kv_heads_per_rank(shape: ModelKVShape, tensor_parallel_size: int) -> tuple[int, int]:
+    """KV heads each tensor-parallel rank holds, and the total across ranks.
+
+    Tensor parallelism shards the KV heads across ranks, so the *per-GPU* cache
+    is the model's cache divided by the TP degree. Measured directly here:
+    Qwen2.5-32B at TP=2 reported a 4.04 GiB pool for 33,072 tokens, which is
+    33,072 x 262,144 / 2 bytes, not 33,072 x 262,144.
+
+    The division stops when it runs out of heads. With fewer KV heads than ranks
+    (Qwen2.5-7B has 4, so any TP above 4) vLLM replicates the KV heads rather
+    than splitting a head, and every rank then stores a whole head: the per-GPU
+    cache stops shrinking and the aggregate cache starts growing. Returning both
+    numbers makes that visible instead of silently wrong.
+    """
+    if tensor_parallel_size < 1:
+        raise ValueError("tensor_parallel_size must be >= 1")
+    if tensor_parallel_size <= shape.num_key_value_heads:
+        if shape.num_key_value_heads % tensor_parallel_size:
+            raise ValueError(
+                f"{shape.model_id}: tensor_parallel_size {tensor_parallel_size} does not divide "
+                f"num_key_value_heads {shape.num_key_value_heads}"
+            )
+        per_rank = shape.num_key_value_heads // tensor_parallel_size
+    else:
+        # More ranks than KV heads: heads are replicated, one per rank.
+        per_rank = 1
+    return per_rank, per_rank * tensor_parallel_size
+
+
 def kv_bytes_per_token(
-    shape: ModelKVShape, *, kv_cache_dtype: str = "auto", dtype_bytes: int | None = None
+    shape: ModelKVShape,
+    *,
+    kv_cache_dtype: str = "auto",
+    dtype_bytes: int | None = None,
+    tensor_parallel_size: int = 1,
 ) -> int:
-    """Bytes of KV cache one token of one sequence occupies, across all layers.
+    """Bytes of KV cache one token of one sequence occupies **on one GPU**.
 
     This is the quantity capacity planning actually runs on: divide the KV pool
-    by it to get the total token budget the engine can hold at once.
+    of one card by it to get the token budget that card can hold.
+
+    At tensor_parallel_size=1 it is the whole model's per-token cache. Above 1 it
+    is the per-rank share, because KV heads are sharded across ranks: see
+    :func:`kv_heads_per_rank` for what happens when there are fewer KV heads than
+    ranks.
     """
     nbytes = dtype_bytes if dtype_bytes is not None else resolve_dtype_bytes(kv_cache_dtype, shape)
+    per_rank, _ = kv_heads_per_rank(shape, tensor_parallel_size)
     return (
         2  # K and V
         * shape.num_hidden_layers
-        * shape.num_key_value_heads  # NOT num_attention_heads
+        * per_rank  # NOT num_attention_heads, and NOT the unsharded KV head count
         * shape.head_dim
         * nbytes
     )
@@ -371,15 +411,21 @@ def kv_bytes(
     kv_cache_dtype: str = "auto",
     dtype_bytes: int | None = None,
     block_size: int | None = None,
+    tensor_parallel_size: int = 1,
 ) -> int:
-    """Predicted KV cache bytes for ``batch`` sequences of ``seq_len`` tokens.
+    """Predicted KV cache bytes, per GPU, for ``batch`` sequences of ``seq_len``.
 
     ``block_size`` applies PagedAttention block-granularity rounding; leave it
     None for the unrounded analytical figure.
     """
     if seq_len < 0 or batch < 0:
         raise ValueError("seq_len and batch must be non-negative")
-    per_token = kv_bytes_per_token(shape, kv_cache_dtype=kv_cache_dtype, dtype_bytes=dtype_bytes)
+    per_token = kv_bytes_per_token(
+        shape,
+        kv_cache_dtype=kv_cache_dtype,
+        dtype_bytes=dtype_bytes,
+        tensor_parallel_size=tensor_parallel_size,
+    )
     return per_token * _cached_tokens(shape, seq_len, block_size) * batch
 
 
@@ -389,10 +435,14 @@ def max_tokens_in_budget(
     *,
     kv_cache_dtype: str = "auto",
     dtype_bytes: int | None = None,
+    tensor_parallel_size: int = 1,
 ) -> int:
-    """How many cached tokens fit in a KV pool of ``budget_bytes``."""
+    """How many cached tokens fit in one GPU's KV pool of ``budget_bytes``."""
     return budget_bytes // kv_bytes_per_token(
-        shape, kv_cache_dtype=kv_cache_dtype, dtype_bytes=dtype_bytes
+        shape,
+        kv_cache_dtype=kv_cache_dtype,
+        dtype_bytes=dtype_bytes,
+        tensor_parallel_size=tensor_parallel_size,
     )
 
 
@@ -404,6 +454,7 @@ def max_concurrent_sequences(
     kv_cache_dtype: str = "auto",
     dtype_bytes: int | None = None,
     block_size: int | None = None,
+    tensor_parallel_size: int = 1,
 ) -> int:
     """The capacity-planning answer: sequences of ``seq_len`` servable at once.
 
@@ -417,6 +468,7 @@ def max_concurrent_sequences(
         kv_cache_dtype=kv_cache_dtype,
         dtype_bytes=dtype_bytes,
         block_size=block_size,
+        tensor_parallel_size=tensor_parallel_size,
     )
     if per_seq <= 0:
         raise ValueError("per-sequence KV bytes resolved to zero")

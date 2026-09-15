@@ -21,6 +21,7 @@ from kv_cache_envelope.calculator import (
     block_padded_tokens,
     kv_bytes,
     kv_bytes_per_token,
+    kv_heads_per_rank,
     max_concurrent_sequences,
     max_tokens_in_budget,
     resolve_dtype_bytes,
@@ -375,3 +376,71 @@ class TestAgainstFetchedConfigs:
         for b in bundles:
             assert isinstance(b.config, dict)
             json.dumps(b.config)
+
+
+class TestTensorParallelSharding:
+    """KV heads are sharded across tensor-parallel ranks, so the per-GPU cache shrinks.
+
+    Measured, not assumed: Qwen2.5-32B at TP=2 reported a 4.04 GiB pool holding
+    33,072 tokens (artifact from sweep `envelope-32b`, job 5213931). The model's
+    unsharded per-token cache is 2*64*8*128*2 = 262,144 bytes, which would put
+    33,072 tokens at 8.07 GiB. The engine's figure is exactly half that, because
+    each of the two ranks holds 4 of the 8 KV heads.
+    """
+
+    QWEN_32B = {
+        "architectures": ["Qwen2ForCausalLM"],
+        "hidden_size": 5120,
+        "max_position_embeddings": 32768,
+        "model_type": "qwen2",
+        "num_attention_heads": 40,
+        "num_hidden_layers": 64,
+        "num_key_value_heads": 8,
+        "sliding_window": 131072,
+        "torch_dtype": "bfloat16",
+        "use_sliding_window": False,
+    }
+
+    def test_qwen32b_unsharded_per_token_bytes(self) -> None:
+        s = shape_from_config(self.QWEN_32B, model_id="Qwen/Qwen2.5-32B-Instruct")
+        assert kv_bytes_per_token(s) == 2 * 64 * 8 * 128 * 2 == 262144
+
+    def test_tp_divides_the_per_gpu_cache(self) -> None:
+        s = shape_from_config(self.QWEN_32B, model_id="Qwen/Qwen2.5-32B-Instruct")
+        full = kv_bytes_per_token(s)
+        assert kv_bytes_per_token(s, tensor_parallel_size=2) == full // 2
+        assert kv_bytes_per_token(s, tensor_parallel_size=4) == full // 4
+        assert kv_bytes_per_token(s, tensor_parallel_size=8) == full // 8
+
+    def test_matches_the_measured_32b_tp2_pool(self) -> None:
+        """Reproduce the measured artifact to within the engine's printed precision."""
+        s = shape_from_config(self.QWEN_32B, model_id="Qwen/Qwen2.5-32B-Instruct")
+        measured_tokens = 33072  # from the artifact
+        measured_pool_gib = 4.04  # engine's own "Available KV cache memory"
+        per_token_per_gpu = kv_bytes_per_token(s, tensor_parallel_size=2)
+        predicted_gib = measured_tokens * per_token_per_gpu / 1024**3
+        assert abs(predicted_gib - measured_pool_gib) < 0.01, predicted_gib
+
+    def test_more_ranks_than_kv_heads_replicates_rather_than_splitting(self) -> None:
+        """Qwen2.5-7B has 4 KV heads, so TP=8 cannot shard them further."""
+        s = shape_from_config(QWEN_7B, model_id="Qwen/Qwen2.5-7B-Instruct")
+        per_rank_4, total_4 = kv_heads_per_rank(s, 4)
+        per_rank_8, total_8 = kv_heads_per_rank(s, 8)
+        assert (per_rank_4, total_4) == (1, 4)
+        assert (per_rank_8, total_8) == (1, 8), "heads are replicated, not split"
+        # Per-GPU cost stops falling past TP=4; the aggregate cost starts rising.
+        assert kv_bytes_per_token(s, tensor_parallel_size=8) == kv_bytes_per_token(
+            s, tensor_parallel_size=4
+        )
+
+    def test_indivisible_tp_is_refused(self) -> None:
+        s = shape_from_config(self.QWEN_32B, model_id="Qwen/Qwen2.5-32B-Instruct")
+        with pytest.raises(ValueError, match="does not divide"):
+            kv_bytes_per_token(s, tensor_parallel_size=3)
+
+    def test_concurrency_scales_with_tp(self) -> None:
+        s = shape_from_config(self.QWEN_32B, model_id="Qwen/Qwen2.5-32B-Instruct")
+        budget = 4 * 1024**3
+        at_tp2 = max_concurrent_sequences(s, budget, seq_len=8192, tensor_parallel_size=2)
+        at_tp4 = max_concurrent_sequences(s, budget, seq_len=8192, tensor_parallel_size=4)
+        assert at_tp4 == 2 * at_tp2

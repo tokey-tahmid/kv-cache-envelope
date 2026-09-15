@@ -79,6 +79,7 @@ class ProbeResult:
     raw_prometheus: dict[str, float] = field(default_factory=dict)
     nvidia_smi_used_mib: list[int] = field(default_factory=list)
     log_tail: str | None = None
+    gpu_release: dict[str, Any] = field(default_factory=dict)
 
 
 # --- launching ---------------------------------------------------------------
@@ -459,6 +460,38 @@ class EngineProbe:
         except httpx.HTTPError:
             return {}
         return parse_prometheus(r.text)
+
+    def wait_for_gpu_memory_release(
+        self, threshold_mib: int = 2048, timeout_s: float = 180.0
+    ) -> dict[str, Any]:
+        """Block until the GPUs are actually idle again, and report what happened.
+
+        Killing the process group returns before the driver has finished
+        reclaiming device memory, and the 32B TP=2 sweep (job 5213931) found out
+        the expensive way: the first launch succeeded, then every repetition
+        after it failed with `budget_exceeds_free`, reporting only 2.78 GiB free
+        of 39.67 on a card that should have been empty. The previous engine's
+        31 GiB of weights were still resident.
+
+        This did not bite the 7B TP=1 sweeps because 14.58 GiB of weights leaves
+        enough slack that a late reclaim still fits under the budget. That is
+        precisely the kind of bug that hides until the configuration that cannot
+        absorb it, so the wait is unconditional rather than applied only to the
+        large model.
+        """
+        deadline = time.perf_counter() + timeout_s
+        last: list[int] = []
+        while time.perf_counter() < deadline:
+            last = nvidia_smi_used_mib()
+            if not last or max(last) <= threshold_mib:
+                return {
+                    "released": True,
+                    "waited_s": round(timeout_s - (deadline - time.perf_counter()), 2),
+                    "used_mib": last,
+                }
+            time.sleep(2.0)
+        log.warning("gpu_memory_not_released", used_mib=last, timeout_s=timeout_s)
+        return {"released": False, "waited_s": timeout_s, "used_mib": last}
 
     def stop(self) -> None:
         proc = self.process
