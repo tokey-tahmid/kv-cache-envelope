@@ -24,6 +24,7 @@ from kv_cache_envelope.calculator import (  # noqa: E402
     UnsupportedArchitecture,
     kv_bytes,
     kv_bytes_per_token,
+    kv_heads_per_rank,
     max_concurrent_sequences,
     shape_from_config,
 )
@@ -243,22 +244,34 @@ def table_capacity_planning(df: pd.DataFrame) -> str:
             continue
         shape = shape_from_config(b.config, model_id=model_id, revision=b.revision)
         pool_bytes = int(pool_tokens * per_token)
+        tp_int = int(tp) if pd.notna(tp) else 1
+        # `per_token` read back from the artifact is already the per-GPU figure
+        # for TP>1, so the element size has to be recovered against the *sharded*
+        # head count, not the model's. Getting this wrong would silently halve
+        # the dtype size at TP=2 and double every capacity number below it.
+        per_rank_heads, _ = kv_heads_per_rank(shape, tp_int)
+        dtype_bytes = int(
+            per_token // (2 * shape.num_hidden_layers * per_rank_heads * shape.head_dim)
+        )
         row: dict[str, object] = {
             "model": model_id,
-            "TP": int(tp) if pd.notna(tp) else None,
+            "TP": tp_int,
             "kv dtype": dtype,
-            "kv KiB/token": round(per_token / 1024, 2),
+            "kv KiB/token/GPU": round(per_token / 1024, 2),
             "measured pool (tokens)": int(pool_tokens),
-            "measured pool (GiB)": round(pool_bytes / GIB, 2),
+            "measured pool (GiB/GPU)": round(pool_bytes / GIB, 2),
         }
         for ctx in (1024, 2048, 4096, 8192, 16384, 32768):
             if shape.max_position_embeddings and ctx > shape.max_position_embeddings:
                 row[f"seqs @ {ctx}"] = "beyond model max"
                 continue
             row[f"seqs @ {ctx}"] = max_concurrent_sequences(
-                shape, pool_bytes, seq_len=ctx, dtype_bytes=int(per_token
-                    // (2 * shape.num_hidden_layers * shape.num_key_value_heads * shape.head_dim)),
+                shape,
+                pool_bytes,
+                seq_len=ctx,
+                dtype_bytes=dtype_bytes,
                 block_size=16,
+                tensor_parallel_size=tp_int,
             )
         rows.append(row)
     if not rows:

@@ -557,6 +557,17 @@ the card is actually idle and **records the wait in the artifact**, so a launch
 that began against a dirty card is visible in its own provenance rather than only
 in its failure. The failed artifacts are kept: they are the evidence.
 
+**Caveat, and it should be stated rather than glossed.** The re-run
+(`envelope-32b-v2`, job 5214082) succeeded where the original failed, but the
+recorded wait was **0.05 s**: by the time the poll ran, the card already read as
+idle. So the data does not establish that waiting is what fixed it, as opposed to
+the race simply not recurring, or the `nvidia-smi` round trip itself being enough
+of a barrier. What the fix reliably provides is *diagnosis*: every artifact now
+carries how long its launch waited and what the card reported, so a recurrence
+will be visible in the record rather than only in a confusing failure. Calling
+this "fixed" without the caveat would be the same class of overclaim as calling
+fragmentation a major residual term.
+
 ---
 
 ## Definition-of-done audit against the workspace CLAUDE.md
