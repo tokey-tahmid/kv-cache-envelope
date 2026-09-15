@@ -285,7 +285,8 @@ Two questions get conflated under "predicted vs measured", and separating them i
 the whole analysis.
 
 **Question 1: is `2 * layers * kv_heads * head_dim * dtype_bytes` right?**
-Yes, to the precision the engine prints. The engine reports its pool in two
+Yes: maximum relative error **0.192% over 91 successful launches**, which is the rounding
+in the engine's own two-decimal GiB print. The engine reports its pool in two
 independent ways: a token count (`vllm:cache_config_info`'s
 `kv_cache_size_tokens`) and a size in GiB ("Available KV cache memory"). Multiply
 the first by the analytical per-token size and the second should come out:
@@ -577,7 +578,7 @@ Checked against the PROJECT 2 section. Honest about what is not met.
 | requirement | status | evidence |
 |---|---|---|
 | Analytical calculator, any HF config to predicted KV bytes, with unit tests | **MET** | `src/kv_cache_envelope/calculator.py`, 46 tests in `tests/test_calculator.py` (job 5214085) |
-| Calculator validated against >=3 models with differing GQA configurations | **MET** | 11 committed config bundles in `configs/model_configs/`, 5 distinct GQA ratios (1.0, 4.0, 5.0, 7.0, 9.0) spanning MHA, GQA and MQA, plus an MLA model the calculator refuses. Table in `results/tables/calculator_validation.md`. Two of them (7B, 32B) additionally validated against a *running engine*. |
+| Calculator validated against >=3 models with differing GQA configurations | **MET** | 11 committed config bundles in `configs/model_configs/`; 10 answered, spanning **6 distinct GQA ratios** (1, 4, 5, 7, 9, 71) across MHA, GQA and MQA, plus DeepSeek-V2-Lite which the calculator refuses. Head dimension varies too (64, 96, 128), so a hard-coded 128 would be wrong on three of the ten. Table in `results/tables/calculator_validation.md`. Two of them (7B, 32B) additionally validated against a *running engine*. |
 | GQA handled via `num_key_value_heads` | **MET**, and the trap turned out to have a second form | Falcon-7B omits the field entirely and is multi-query; the HF-documented MHA fallback would have overstated its cache 71x. See `_resolve_kv_heads`. |
 | Measured envelope: sweep sequence length 256 to model max, log-spaced | **MET** | `envelope-len`, 8 points, N=3 |
 | ... x batch size | **PARTIAL** | Batch is swept as *concurrency* in the `occupancy` sweep (32 to 256 at four utilisation settings), which is the operationally meaningful axis, and `max_num_seqs` was varied only incidentally. A dedicated `max_num_seqs` axis at fixed concurrency is **not measured**. |

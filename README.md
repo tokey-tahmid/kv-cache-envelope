@@ -36,7 +36,8 @@ measurement: the pool came out at **exactly 390,720 tokens at every single one o
 eight lengths**. `max_model_len` is a per-request limit, not a memory budget. It changes
 how the pool is divided, never how big it is.
 
-With `--kv-cache-dtype fp8` every figure doubles, measured at exactly 2.0000x. On A100
+With `--kv-cache-dtype fp8` every figure doubles, measured at a token ratio of 2.0000 to
+2.0003 across four block sizes. On A100
 (sm80) there are no native fp8 tensor cores, so this is purely a storage win and the
 attention kernel dequantises on read.
 
@@ -90,8 +91,9 @@ declares `multi_query: true` with 71 attention heads and one KV head. Taking the
 fallback there overstates its cache **71x**. The calculator applies Falcon's own derivation
 rules before the fallback, and logs every use of the fallback so it can be audited.
 
-Validated against 11 real model configs, committed under `configs/model_configs/` with
-their revisions, spanning 5 distinct GQA ratios and three attention kinds:
+Validated against 11 model configs committed under `configs/model_configs/` with their
+revisions: 10 the calculator answers for, spanning **6 distinct GQA ratios and three
+attention kinds**, plus one it refuses.
 
 | attention | models | GQA ratio |
 |---|---|---|
@@ -101,6 +103,9 @@ their revisions, spanning 5 distinct GQA ratios and three attention kinds:
 | GQA | Qwen2.5-7B, Qwen2.5-0.5B | 7x |
 | GQA | starcoder2-7b | 9x |
 | MQA | falcon-7b | 71x |
+
+Head dimension is not uniform either: Phi-3-mini uses 96 and SmolLM2 and falcon-7b use 64,
+so a calculator that hard-codes 128 is wrong on three of the ten.
 
 `deepseek-ai/DeepSeek-V2-Lite` is also committed, and the calculator **refuses** it:
 multi-head latent attention caches a compressed latent per token, not per-head K and V, so
@@ -138,8 +143,11 @@ attention backend on sm80 (`backend_unsupported`). It is plotted as its own cate
 because filing it with the OOMs would be a lie about what limits capacity.
 
 The pool is **exactly linear** in `gpu_memory_utilization`, and the slope of that line
-recovers the usable device memory: 39.67 GiB per unit gmu, against a card that measures
-39.67 GiB usable.
+recovers the usable device memory: a least-squares fit over the nine working settings gives
+**39.67 GiB of pool per unit gmu**, against a card that measures **39.67 GiB** usable, 0.01%
+apart. The fit crosses zero at **gmu 0.374**: that fraction of the card is consumed by fixed
+overhead before any cache exists at all, which is why the low-end boundary sits where it
+does.
 
 ---
 
@@ -147,8 +155,9 @@ recovers the usable device memory: 39.67 GiB per unit gmu, against a card that m
 
 **The per-token formula is exact.** The engine reports its pool twice, independently: a
 token count and a size in GiB. Multiplying the first by the analytical per-token size
-reproduces the second to the precision the engine prints, for every configuration
-measured, including fp8 and TP=2.
+reproduces the second across **91 successful launches** with a **maximum relative error of
+0.192%**, which is the rounding in the engine's own two-decimal GiB print. That holds for
+fp8 and for TP=2 as well.
 
 So the residual is not in the KV arithmetic. It is entirely in **how big the budget turns
 out to be**, and that decomposes into five named terms. Four of the five are read out of
@@ -166,14 +175,17 @@ the engine's own startup accounting rather than attributed by us:
 
 Reading it:
 
-- **The whiteboard estimate** `0.90 x 40 - 14.29 = 21.7 GiB` is **4% high**. Starting from
-  measured usable memory and subtracting the terms the engine reports gives
+- **The whiteboard estimate** `0.90 x 40 - 14.29 = 21.7 GiB` is **4.0% high** at
+  `gmu=0.90`, and its error grows as the pool shrinks: across the measured range
+  `gmu` 0.42 to 0.95 it overstates the pool by **3.8% to 37.9%**. Starting from measured
+  usable memory and subtracting the terms the engine reports gives
   `39.67 x 0.90 - 14.58 - 0.26 = 20.83 GiB`, which is **0.2% low**. That is a capacity
   model you can plan a fleet with.
 - **`gpu_memory_utilization` is not a cap on total usage.** The terms sum to 36.24 GiB
   against a 35.71 GiB budget: graph capture is spent after the pool is sized, so the real
-  high-water mark sits 0.53 GiB above the limit you asked for. That is why the failure at
-  `gmu=0.97` is an OOM during capture rather than a clean refusal.
+  high-water mark sits **0.53 GiB above** the limit you asked for, at every one of the nine
+  utilisation settings measured. That is why the failure at `gmu=0.97` is an OOM during
+  capture rather than a clean refusal.
 - **Block-granularity rounding is negligible for the pool and real for the sequence.**
   The pool loses 64 tokens of 390,720 (0.016%) at `block_size=128`. A single 1-token
   sequence, meanwhile, occupies a whole 128-token block. Those are different costs and

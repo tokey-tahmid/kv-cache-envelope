@@ -13,8 +13,8 @@ not measured.
 - Four distinct failure boundaries measured at both ends of the memory axis, N=3 each.
 - The residual between the whiteboard estimate and the measured pool decomposed term by
   term, with four of the five terms read from the engine's own startup accounting.
-- Calculator validated against 11 committed model configs spanning 5 GQA ratios, and
-  against running engines on two of them.
+- Calculator validated against 11 committed model configs, 10 answered spanning 6 GQA
+  ratios and 3 attention kinds plus 1 refused, and against running engines on two of them.
 - vLLM's block manager and scheduler read inside the pinned container, cited by file and
   function in `docs/notes.md`.
 - 6.97 node-hours consumed of the ~15 allocated (`docs/budget.md`, every row from `sacct`).
@@ -73,7 +73,8 @@ monotonically, 40% more wall-clock for identical work at gmu 0.60 than at 0.90.
 
 **The per-token formula is exact.** The engine reports its pool twice independently, as a
 token count and as GiB. `tokens x (2 x layers x kv_heads x head_dim x dtype_bytes)`
-reproduces the GiB figure to printed precision for every configuration, including fp8 and
+reproduces the GiB figure across **91 successful launches with a maximum relative error of
+0.192%**, which is the rounding in the engine's own two-decimal print. That includes fp8 and
 TP=2. Nothing in the KV arithmetic is approximate.
 
 The residual is entirely in **how large the budget turns out to be**, and it decomposes
@@ -89,7 +90,8 @@ into five named terms:
 | CUDA graph capture | 0.53 |
 | **KV pool** | **20.87** |
 
-- Whiteboard estimate `0.90 x 40 - 14.29 = 21.7 GiB` is **4% high**.
+- Whiteboard estimate `0.90 x 40 - 14.29 = 21.7 GiB` is **4.0% high** at gmu 0.90, and
+  3.8% to 37.9% high across the measured gmu range.
 - Corrected estimate `39.67 x 0.90 - 14.58 - 0.26 = 20.83 GiB` is **0.2% low**.
 - The `num_attention_heads` mistake would have been **600%** wrong.
 - The terms sum to 36.24 GiB against a 35.71 GiB budget: **graph capture is spent after

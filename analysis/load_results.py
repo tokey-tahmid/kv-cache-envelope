@@ -131,9 +131,13 @@ def occupancy_rows(df: pd.DataFrame) -> pd.DataFrame:
     """Explode the stored occupancy phases into one row per phase."""
     out: list[dict[str, Any]] = []
     for _, r in df.iterrows():
-        if not r.get("occupancy_phases"):
+        phases_json = r.get("occupancy_phases")
+        # pandas turns the None on non-occupancy rows into NaN, which is a float
+        # and is truthy, so a bare falsiness check lets it through and json.loads
+        # raises. Check for null explicitly.
+        if phases_json is None or pd.isna(phases_json) or not isinstance(phases_json, str):
             continue
-        for ph in json.loads(r["occupancy_phases"]):
+        for ph in json.loads(phases_json):
             phase = ph.get("phase") or {}
             out.append(
                 {

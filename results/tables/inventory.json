@@ -1,0 +1,25 @@
+{
+  "raw_artifacts": 165,
+  "recorded_failures": 43,
+  "statuses": {
+    "backend_unsupported": 4,
+    "budget_exceeds_free": 11,
+    "kv_cache_too_small": 3,
+    "launch_failed": 19,
+    "ok": 122,
+    "oom": 5,
+    "oom_no_cache_blocks": 1
+  },
+  "successful_launches": 122,
+  "sweeps": {
+    "boundary-recheck": 8,
+    "boundary-recheck-block": 4,
+    "envelope-32b": 8,
+    "envelope-32b-v2": 3,
+    "envelope-block": 40,
+    "envelope-gmu": 52,
+    "envelope-len": 32,
+    "occupancy": 16,
+    "validate": 2
+  }
+}

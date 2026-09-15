@@ -30,7 +30,6 @@ from style import (  # noqa: E402
     STATUS_CRITICAL,
     SURFACE,
     TEXT_MUTED,
-    TEXT_SECONDARY,
     apply_style,
     series_style,
 )
