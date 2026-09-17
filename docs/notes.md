@@ -610,3 +610,31 @@ Checked against the PROJECT 2 section. Honest about what is not met.
   result in particular may not transfer to a card with different attention
   backend availability, given that `block_size=8` is rejected here by the backend
   rather than by the cache.
+
+---
+
+## 2026-09-18: history rewritten to drop AI-attribution trailers
+
+1 commit(s) carried a `Co-Authored-By: Claude ...` trailer, added in error
+against the workspace rule that forbids AI-attribution trailers. GitHub credits
+co-authors as contributors, so a published copy of this repository would list
+one.
+
+Removing a trailer rewrites the commit and every descendant, so 11 of 15
+commits changed SHA. No content changed: `git diff` between the pre-rewrite and
+post-rewrite trees is empty, and commit count, subjects, author and committer
+identities and dates are unchanged.
+
+**This breaks a provenance link, and the mapping below is the repair.** Every
+artifact under `results/raw/` records the `git_sha` it was produced at, and
+those are pre-rewrite SHAs. The artifacts are append-only and were *not*
+edited. To resolve one, map it here:
+
+| `git_sha` recorded in artifacts | commit after the rewrite | artifacts |
+|---|---|---|
+| `e1a6e3b176f6ca329c706bbb9f34fb08ea8dbb06-dirty` | `e1a6e3b176f6ca329c706bbb9f34fb08ea8dbb06` (plus uncommitted changes) -- unchanged, predates the rewrite | 142 |
+| `0255955898f4e62134c872749345c0aa92464fe9-dirty` | `1422e20f8b8a8851aad77296a60135f4f1cdb8db` (plus uncommitted changes) | 20 |
+| `6bcfd50ae7e3d9de5af76ba1f018821d0d1dd872-dirty` | `f1b299aa07259ea27352efa33a6bcd879675330c` (plus uncommitted changes) | 8 |
+
+The complete 15-commit mapping is in `docs/sha_map_2026-09-18.tsv`. A `-dirty` suffix
+means the tree carried uncommitted changes when the artifact was written.
