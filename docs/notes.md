@@ -638,3 +638,13 @@ edited. To resolve one, map it here:
 
 The complete 15-commit mapping is in `docs/sha_map_2026-09-18.tsv`. A `-dirty` suffix
 means the tree carried uncommitted changes when the artifact was written.
+
+## 2026-10-14: history rewritten to correct commit metadata
+
+Some commits recorded a work email address as author or committer. It was
+replaced with the personal address, and a local working-notes file that was
+never part of the project was removed from every commit. 17 of 17 commits
+changed SHA; apart from that file, every tree is unchanged.
+
+Artifacts were *not* edited. A `git_sha` recorded in `results/` resolves through
+the earlier map first (if listed there) and then `docs/sha_map_2026-10-14.tsv`.
