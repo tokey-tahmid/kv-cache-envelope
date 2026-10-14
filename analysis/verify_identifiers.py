@@ -29,7 +29,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-PROSE = ["README.md", "CLAUDE.md", "docs/notes.md", "docs/budget.md", "docs/PROGRESS.md"]
+PROSE = ["README.md", "docs/notes.md", "docs/budget.md", "docs/PROGRESS.md"]
 
 
 def ground_truth() -> set[str]:

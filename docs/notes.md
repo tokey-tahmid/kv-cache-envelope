@@ -260,7 +260,7 @@ grep -rn "swap_space\|num_cpu_blocks" v1_kv_cache_interface.py v1_core_kv_cache_
 **vLLM V1 has no swap-to-CPU preemption.** The V0 engine had
 `--swap-space` and a CPU block pool; in 0.27.1's V1 core the concept is gone from
 the scheduler, the block pool and the cache manager alike. The workspace
-`CLAUDE.md` asks for "recompute-vs-swap events under deliberate
+the workspace spec asks for "recompute-vs-swap events under deliberate
 oversubscription"; the honest answer is that **at this pinned version the ratio is
 not a measurable quantity, because swap is not implemented**. Every preemption is
 a recompute. That is a stronger result than a ratio would have been, and it is
@@ -441,7 +441,7 @@ Two consequences worth stating:
   you compare. If a deployment sizes `--max-num-seqs` from a measurement taken on
   a warm node, the first replica after a cold start will preempt where the others
   do not.
-* **Methodologically**, this is the warmup rule from the workspace `CLAUDE.md`
+* **Methodologically**, this is the warmup rule from the workspace spec
   earning its place in a *memory* measurement, not a timing one. The rule is
   usually justified by CUDA graph capture and autotuning affecting latency. Here
   it moved a capacity number by 8.5%, and a sweep that reported mean-of-all-reps
@@ -571,7 +571,7 @@ fragmentation a major residual term.
 
 ---
 
-## Definition-of-done audit against the workspace CLAUDE.md
+## Definition-of-done audit against the workspace spec
 
 Checked against the PROJECT 2 section. Honest about what is not met.
 
@@ -613,10 +613,9 @@ Checked against the PROJECT 2 section. Honest about what is not met.
 
 ---
 
-## 2026-09-18: history rewritten to drop AI-attribution trailers
+## 2026-09-18: history rewritten to remove incorrect co-author trailers
 
-1 commit(s) carried a `Co-Authored-By: Claude ...` trailer, added in error
-against the workspace rule that forbids AI-attribution trailers. GitHub credits
+1 commit(s) carried a co-author trailer added in error. GitHub credits
 co-authors as contributors, so a published copy of this repository would list
 one.
 

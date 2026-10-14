@@ -1,7 +1,7 @@
 """Shared figure style.
 
 These figures go in a portfolio and should read like SC-submission plots, so the
-rules from ../CLAUDE.md are enforced here rather than remembered per script:
+rules from the workspace spec are enforced here rather than remembered per script:
 300 dpi, axis units labelled, hardware and model in the caption, repetition count
 and spread always shown.
 

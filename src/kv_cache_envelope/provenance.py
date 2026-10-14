@@ -1,6 +1,6 @@
 """Provenance capture for raw measurement artifacts.
 
-Non-negotiable rule from the workspace CLAUDE.md: every result carries provenance,
+Non-negotiable rule from the workspace spec: every result carries provenance,
 raw artifacts are append-only, and nothing under ``results/raw/`` is ever produced
 by anything but a real run.
 
@@ -171,7 +171,7 @@ def slurm_context() -> dict[str, Any]:
 
 @dataclass
 class Provenance:
-    """The header block required by the workspace CLAUDE.md, plus MeluXina extras."""
+    """The header block required by the workspace spec, plus MeluXina extras."""
 
     run_id: str
     utc_timestamp: str

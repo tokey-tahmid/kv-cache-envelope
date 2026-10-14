@@ -54,11 +54,10 @@ sbatch slurm/run_analysis.sh
 | | |
 |---|---|
 | GPU | NVIDIA A100-SXM4-40GB, **39.67 GiB usable**, full NVLink `NV4` mesh |
-| node | MeluXina `gpu` partition at ICHEC, 4x A100, 128 cores, 480 GB RAM, diskless |
+| node | HPC cluster GPU partition, 4x A100, 128 cores, 480 GB RAM, diskless |
 | driver / CUDA | 595.91.07 / 13.2 |
 | engine | vLLM 0.27.1, image digest `sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967` |
 | models | Qwen2.5-7B-Instruct `a09a35458c702b33eeacc393d103063234e8bc28`, Qwen2.5-32B-Instruct `5ede1c97bbab6ce5cda5812749b4c0bdf79b18dd` |
-| account | `p201466`, `gpu` partition only |
 
 Every number in this README traces to a committed artifact under `results/raw/`.
 `analysis/verify_identifiers.py` fails the build if any identifier in prose does not

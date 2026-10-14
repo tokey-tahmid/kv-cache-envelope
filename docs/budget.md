@@ -9,7 +9,7 @@ Every row is copied from `sacct`, not estimated:
 sacct -X --starttime 2026-09-15 --format=JobID,JobName,State,Elapsed,NNodes -n | grep kve
 ```
 
-The workspace `CLAUDE.md` allocates **~15 node-hours** to this project.
+The workspace spec allocates **~15 node-hours** to this project.
 
 ## Ledger
 
